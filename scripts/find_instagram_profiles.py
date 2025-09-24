@@ -5,6 +5,21 @@ import time
 import os
 from urllib.parse import quote
 
+def find_instagram_from_description(description_links):
+    """Use Instagram links found in channel description"""
+    if description_links and description_links.strip():
+        links = description_links.split(',')
+        first_link = links[0].strip()
+        if first_link:
+            username = first_link.split('/')[-1]
+            return {
+                'instagram_url': first_link,
+                'instagram_username': username,
+                'match_confidence': 'high',
+                'source': 'channel_description'
+            }
+    return None
+
 def search_instagram_profile(username, api_key, search_engine_id):
     """Search for Instagram profile using Google Custom Search"""
     try:
@@ -46,7 +61,7 @@ def search_instagram_profile(username, api_key, search_engine_id):
                                 'instagram_url': link,
                                 'instagram_username': ig_username,
                                 'match_confidence': 'high' if clean_username in ig_username.lower() else 'medium',
-                                'search_title': title
+                                'source': 'google_search'
                             }
         
         return None
@@ -89,9 +104,24 @@ def main():
     
     # Search for Instagram profiles
     results = []
+    found_from_description = 0
+    found_from_search = 0
     
     for i, row in df.iterrows():
         username = row['author_name']
+        
+        # FÖRST: Kolla kanalbeskrivning
+        if 'instagram_from_description' in row and row['instagram_from_description']:
+            instagram_data = find_instagram_from_description(row['instagram_from_description'])
+            if instagram_data:
+                result = row.to_dict()
+                result.update(instagram_data)
+                print(f"Found Instagram in description: {instagram_data['instagram_url']}")
+                results.append(result)
+                found_from_description += 1
+                continue
+        
+        # SEDAN: Fallback till Google Search
         print(f"Searching Instagram for: {username} ({i+1}/{len(df)})")
         
         instagram_data = search_instagram_profile(username, api_key, search_engine_id)
@@ -101,12 +131,13 @@ def main():
         if instagram_data:
             result.update(instagram_data)
             print(f"  Found: {instagram_data['instagram_url']}")
+            found_from_search += 1
         else:
             result.update({
                 'instagram_url': '',
                 'instagram_username': '',
                 'match_confidence': '',
-                'search_title': ''
+                'source': ''
             })
             print(f"  No Instagram profile found")
         
@@ -125,8 +156,11 @@ def main():
     os.makedirs(os.path.dirname(args.output_file), exist_ok=True)
     results_df.to_csv(args.output_file, index=False)
     
-    found_count = len([r for r in results if r.get('instagram_url')])
-    print(f"Found Instagram profiles for {found_count}/{len(results)} commenters")
+    total_found = found_from_description + found_from_search
+    print(f"\n=== RESULTS ===")
+    print(f"Found from channel descriptions: {found_from_description}")
+    print(f"Found from Google search: {found_from_search}")
+    print(f"Total Instagram profiles found: {total_found}/{len(results)}")
 
 if __name__ == "__main__":
     main()
