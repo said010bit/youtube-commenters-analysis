@@ -1,0 +1,74 @@
+name: YouTube Commenters Analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel_url:
+        description: 'YouTube Channel URL'
+        required: true
+        type: string
+      video_count:
+        description: 'Number of recent videos to analyze'
+        required: true
+        default: '10'
+        type: string
+      top_commenters_limit:
+        description: 'Number of top commenters to extract'
+        required: true
+        default: '100'
+        type: string
+      days_back:
+        description: 'Analyze comments from last X days (0 = all time)'
+        required: false
+        default: '30'
+        type: string
+
+env:
+  YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+  GOOGLE_SEARCH_API_KEY: ${{ secrets.GOOGLE_SEARCH_API_KEY }}
+  GOOGLE_SEARCH_ENGINE_ID: ${{ secrets.GOOGLE_SEARCH_ENGINE_ID }}
+
+jobs:
+  analyze-youtube-commenters:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+
+    - name: Extract YouTube Comments
+      run: |
+        python scripts/extract_comments.py \
+          --channel-url "${{ github.event.inputs.channel_url }}" \
+          --video-count "${{ github.event.inputs.video_count }}" \
+          --days-back "${{ github.event.inputs.days_back }}"
+
+    - name: Rank Commenters
+      run: |
+        python scripts/rank_commenters.py \
+          --input-file "data/youtube_commenters_raw.csv" \
+          --output-file "data/youtube_commenters_ranked.csv" \
+          --limit "${{ github.event.inputs.top_commenters_limit }}"
+
+    - name: Find Instagram Profiles
+      run: |
+        python scripts/find_instagram_profiles.py \
+          --input-file "data/youtube_commenters_ranked.csv" \
+          --output-file "data/top_candidates_with_instagram.csv"
+
+    - name: Upload Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: youtube-analysis-results-${{ github.run_number }}
+        path: |
+          data/*.csv
+        retention-days: 30
