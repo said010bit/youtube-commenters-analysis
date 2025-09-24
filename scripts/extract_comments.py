@@ -2,7 +2,7 @@ import os
 import argparse
 import pandas as pd
 from googleapiclient.discovery import build
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import re
 
 class YouTubeCommentExtractor:
@@ -70,7 +70,8 @@ class YouTubeCommentExtractor:
     def extract_comments(self, video_id, days_back=30):
         """Extract comments from a video"""
         comments = []
-        cutoff_date = datetime.now() - timedelta(days=days_back) if days_back > 0 else None
+        # Fix: Make cutoff_date timezone-aware
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_back) if days_back > 0 else None
         
         try:
             response = self.youtube.commentThreads().list(
@@ -83,6 +84,7 @@ class YouTubeCommentExtractor:
             while response:
                 for item in response['items']:
                     comment = item['snippet']['topLevelComment']['snippet']
+                    # Fix: Parse datetime properly
                     comment_date = datetime.fromisoformat(comment['publishedAt'].replace('Z', '+00:00'))
                     
                     if cutoff_date and comment_date < cutoff_date:
@@ -104,6 +106,7 @@ class YouTubeCommentExtractor:
                     if 'replies' in item:
                         for reply in item['replies']['comments']:
                             reply_snippet = reply['snippet']
+                            # Fix: Parse reply datetime properly
                             reply_date = datetime.fromisoformat(reply_snippet['publishedAt'].replace('Z', '+00:00'))
                             
                             if cutoff_date and reply_date < cutoff_date:
@@ -123,7 +126,7 @@ class YouTubeCommentExtractor:
                                 'parent_comment_id': item['snippet']['topLevelComment']['id']
                             })
                 
-                if 'nextPageToken' in response:
+                if 'nextPageToken' in response and len(comments) < 1000:  # Limit to prevent too many API calls
                     response = self.youtube.commentThreads().list(
                         part='snippet,replies',
                         videoId=video_id,
@@ -176,14 +179,19 @@ def main():
             comment['video_published_at'] = video['published_at']
         
         all_comments.extend(comments)
+        print(f"Extracted {len(comments)} comments from this video")
     
     # Save to CSV
     os.makedirs('data', exist_ok=True)
-    df = pd.DataFrame(all_comments)
-    df.to_csv('data/youtube_commenters_raw.csv', index=False)
-    
-    print(f"Extracted {len(all_comments)} comments")
-    print(f"Unique commenters: {df['author_name'].nunique()}")
+    if all_comments:
+        df = pd.DataFrame(all_comments)
+        df.to_csv('data/youtube_commenters_raw.csv', index=False)
+        print(f"Extracted {len(all_comments)} total comments")
+        print(f"Unique commenters: {df['author_name'].nunique()}")
+    else:
+        print("No comments found!")
+        # Create empty CSV to prevent next step from failing
+        pd.DataFrame().to_csv('data/youtube_commenters_raw.csv', index=False)
 
 if __name__ == "__main__":
     main()
